@@ -1,0 +1,326 @@
+use std::thread;
+use std::collections::{HashMap, VecDeque};
+use std::time::Duration;
+use std::{cmp::min, fmt::Write};
+use indicatif::{
+    ProgressBar, 
+    ProgressState, 
+    ProgressStyle
+};
+use log::{info, warn};
+
+use ::rand::{
+    rngs::SmallRng,
+    RngCore,
+    SeedableRng,
+};
+
+mod request;
+use request::Request;
+
+mod worker_core;
+use worker_core::Core;
+
+use arrayvec::ArrayVec;
+
+const MAX_REQUESTS_RECEIVED: usize = 32;
+
+enum QueueDiscipline {
+    cFCFS,
+    dFCFS,
+}
+
+enum Phase {
+    Phase1,
+    Phase2,
+    Phase3,
+}
+
+struct Simulation {
+    // NIC Related
+    nr_table_entries: usize,                        // The number of indirection table entries
+    indirection_table: HashMap<usize, usize>,       // Indirection table to map queue_id->core_id
+
+    // Server Related
+    nr_cores_1phase: usize,                         // The number of cores of phase 1 (only grab packets from the NIC)
+    nr_cores_2phase: usize,                         // The number of cores of phase 2 (only process the network stack)
+    nr_cores_3phase: usize,                         // The number of cores of phase 3 (only process the application)
+    siblings_table: HashMap<usize, usize>,          // The sibling table for hyperthreading
+    phases_table: HashMap<usize, usize>,            // The phase table to map core_id->phase
+    queue_discipline: QueueDiscipline,              // Queue Discipline
+
+
+    // Request Related
+
+    // Simulator Related
+    t_cur: usize,                                   // Current time (in ticks)
+    t_duration: usize,                              // Duration of the simulation (in ticks)
+    nr_requests_completed: usize,                   // Number of requests completed
+    cores: Vec<Core>,                               // Array of all simulated cores
+    requests: VecDeque<Request>,                    // Array of all requests to be run into Simulator
+    progress_bar: ProgressBar,                      // Progress bar
+}
+
+impl Simulation {
+    pub fn new() -> Simulation {
+        info!("Creating the Simulation");
+
+        let t_duration: usize = 10000000;
+        let nr_queues = 8;
+        let requests = Self::configure_requests();
+
+        let rss_entries = 128;
+        let nr_cores = 4;
+        let queue_discipline = QueueDiscipline::cFCFS;
+
+        let progress_bar: ProgressBar = ProgressBar::new(t_duration as u64);
+        progress_bar.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.blue/white}] {pos:>7}/{len:7} ({percent})")
+            .unwrap()
+            .with_key("percent", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.2}%", (state.fraction() * 100.0)).unwrap())
+            .progress_chars("#>-"));
+
+        // Assuming Round-Robin for the queue_id <-> core_id relationship
+        let nr_table_entries = 128;
+        let mut indirection_table = HashMap::<usize,usize>::new();
+
+        let nr_cores_1phase = 8;
+        let nr_cores_2phase = 8;
+        let nr_cores_3phase = 8;
+
+        // Sibling table for hyperthreading
+        let mut siblings_table = HashMap::<usize,usize>::new();
+
+        // Array for arrays
+        let mut cores = Vec::new();
+
+        // CPU phases for core
+        let phases_table = HashMap::<usize,usize>::new();
+
+        // Cores phase1 is only to get packet from the NIC
+        let nr_cores_phase1 = match queue_discipline {
+            QueueDiscipline::cFCFS => 1,
+            QueueDiscipline::dFCFS => nr_cores,
+        };
+
+        // TODO: could be simulate a real RSS
+        for queue_id in 0..nr_cores_phase1 {
+            indirection_table.insert(queue_id, queue_id % nr_cores_phase1);
+        }
+        
+        let sim = Simulation {
+            // NIC Related
+            nr_table_entries,
+            indirection_table,
+
+            // Server Related
+            nr_cores_1phase,
+            nr_cores_2phase,
+            nr_cores_3phase,
+            siblings_table,
+            phases_table,
+            queue_discipline,
+
+            // Simulator Related
+            t_cur: 0,
+            t_duration,
+            nr_requests_completed: 0,
+            cores,
+            requests,
+            progress_bar
+        };
+
+        sim
+    }
+
+    fn configure_requests() -> VecDeque<Request> {
+        let total_requests = 100_000;
+        let total_flows: u64 = 128;
+        // Read and configure all requests
+        // We should have a list of requests ordered by arrival time
+        let mut tasks = Vec::<Request>::with_capacity(total_requests as usize);
+
+        println!("\nConfiguring the requests...");
+
+        let pb: ProgressBar = ProgressBar::new(total_requests);
+        pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.green/white}] {pos:>7}/{len:7}")
+            .unwrap()
+            .progress_chars("#>-"));
+
+        //TEMP
+        let mut rng = SmallRng::seed_from_u64(3);
+        for i in 0..total_requests {
+            let req = Request::new(
+                i as usize,
+                (rng.next_u64() % total_flows) as usize,
+                (rng.next_u64() % 1000000) as usize,
+                0,
+                0,
+                (rng.next_u64() % 1000) as usize,
+            );
+            tasks.push(req);
+            pb.inc(1);
+        }
+
+        // set numer of flow
+
+        tasks.sort_by(|a, b| a.get_arrival_time().cmp(&b.get_arrival_time()));
+        tasks[0].set_id(0);
+        //TEMP
+        let mut i = 1;
+        let first = &tasks[0].get_arrival_time();
+        for req in &mut tasks[1..] {
+            req.t_arrival -= first;
+            req.set_id(i);
+            i += 1;
+        }
+
+        let requests = VecDeque::from(tasks);
+
+        pb.finish();
+        println!("Done.");
+
+        requests
+    }
+
+    fn has_unprocessing_requests(&self) -> bool {
+        if self.nr_requests_completed < self.requests.len() {
+            true
+        } else {
+            !self.requests[self.requests.len() - 1].is_completed()
+        }
+    }
+
+    pub fn process_incoming_request(&mut self, ) {
+
+        self.requests.
+
+        match self.queue_discipline {
+            QueueDiscipline::cFCFS => {
+                // Centralized First-Come-First-Serve
+                match self.cores[0].try_enqueue(id) {
+                    Ok(()) => {},
+                    Err(e) => {
+                        req.set_dropped();
+                        self.nr_dropped += 1;
+                    }
+                }
+            }
+            QueueDiscipline::dFCFS => {
+                // Distributed First-Come-First-Serve
+            }
+        }
+
+        if self.queue_discipline == QueueDiscipline::cFCFS {
+            
+            match self.cores[0].try_enqueue(id) {
+                Ok(()) => {},
+                Err(e) => {
+                    req.set_dropped();
+                    self.nr_dropped += 1;
+                }
+            }
+        } else {
+            
+
+            // RSS
+            let queue_id: usize = req.get_flow_id() % self.rss_entries;
+            let core_id = self.rss_indirection_table.get(&queue_id).unwrap();
+            match self.cores[0].try_enqueue(id) {
+
+            }
+        }
+    }
+
+    pub fn run(&mut self) {
+        println!("\nRunning the simulator...");
+
+        // Set the current time of the simulator as the arrival time of the first request.
+        self.t_cur = self.requests.get(0).expect("Should be at least one request").get_arrival_time();
+        self.progress_bar.inc(self.t_cur as u64);
+
+        // Next request.
+        let mut next_request: usize = 0;
+        
+        // Array for requests that received in the same time.
+        let mut received_requests: Vec<usize> = Vec::<usize>::new();
+
+        // Array for requests that finished.
+        let mut finished_requests: Vec<usize> = Vec::<usize>::new();
+
+        // Array for requests that are running.
+        let mut enqueued_requests: Vec<usize> = Vec::<usize>::new();
+
+        // While there are requests to be process and the duration is not reached, we run the simulator.
+        while self.has_unprocessing_requests() && self.t_cur < self.t_duration {
+
+            // Schedule all cores
+            for core in &mut self.cores {
+                core.schedule();
+            }
+
+
+
+            // Schedule the enqueued requests.
+            for id in &enqueued_requests {
+                let req = &mut self.requests[*id];
+                req.schedule();
+                if req.is_completed() {
+                    finished_requests.push(*id);
+                }
+            }
+
+            // Remove all finished tasks.
+            for id_finished in &finished_requests {
+                enqueued_requests.retain(|&r| r != *id_finished);
+            }
+            finished_requests.clear();
+
+            // Check for new incoming requests.
+            if next_request < self.requests.len() {
+                let next_arrival_time: usize = (&self.requests[next_request]).get_arrival_time();
+                if self.t_cur == next_arrival_time {
+                    // Check for requests that arrived in the same time.
+                    let mut i: usize = next_request;
+                    while next_arrival_time == (&self.requests[i]).get_arrival_time() && i < self.requests.len() {
+                        received_requests.push((&self.requests[i]).get_id());
+                        i += 1;
+                    }
+                    next_request += i;
+                }
+            }
+
+            // Process the incoming requests
+            // AQUI TEM QUE VERIFICAR QUAL DISTRIBUICAO E ETC
+            for id in &received_requests {
+                // thread::sleep(Duration::from_nanos(req.get_service_time() as u64));
+                enqueued_requests.push(*id);
+                self.process_incoming_request(*id);
+            }
+            received_requests.clear();
+
+            self.nr_requests_completed += 1;
+
+            // Move ticks forward.
+            self.t_cur += 1;
+            self.progress_bar.inc(1);
+        }
+
+        self.progress_bar.finish();
+        println!("Done.")
+    }
+}
+
+// We assume that the same interarrival can be 
+
+fn main() {
+    let mut sim: Simulation = Simulation::new();
+
+
+    //requests should be > 0
+
+    // pb.finish_with_message("downloaded");
+
+    sim.run();
+
+
+}
