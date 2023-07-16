@@ -1,0 +1,38 @@
+{
+    "seed": 3,
+    "layout": 1,
+    "duration": 100000000,
+    "queue_size": 128,
+    "nr_total_cores": 8,
+    "nr_indirection_table_entries": 128,
+    "layout1": {
+        "nr_worker_cores": 7
+    },
+    "layout2": {
+        "nr_worker_cores": 8
+    },
+    "layout3": {
+        "nr_application_cores": 7
+    },
+    "layout4": {
+        "nr_network_cores": 2,
+        "nr_application_cores": 6
+    },
+    "network_stack": {
+        "distribution": "constant",
+        "mean1": 100,
+        "mean2": 1100
+    },
+    "application": {
+        "distribution": "constant",
+        "mean1": 100,
+        "mean2": 10000
+    },
+    "packets": {
+        "nr_packets": 10000,
+        "nr_flows": 16,
+        "distribution": "constant",
+        "mean1": 1000,
+        "mean2": 1000
+    }
+}
