@@ -16,14 +16,23 @@ pub struct Request {
     id: usize,
     t_arrival: usize,
     t_departure: usize,
+    // Forwarder
+    is_f_dropped: bool,
+    is_f_completed: bool,
+    // Packet
     is_p_dropped: bool,
-    is_r_dropped: bool,
     is_p_completed: bool,
+    // Request
+    is_r_dropped: bool,
     is_r_completed: bool,
-    // Forwarder information
-    t_forwarded: usize,     // Only for Layout1
     // Packet infomation
     flow_id: usize,
+    // Forward information
+    t_f_start: usize,
+    t_f_end: usize,
+    f_completed: usize,
+    forward_time: usize,
+    // Packet information
     t_p_start: usize,
     t_p_end: usize,
     p_completed: usize,
@@ -41,6 +50,7 @@ impl Request {
         id: usize,
         flow_id: usize,
         t_arrival: usize,
+        forward_time: usize,
         stack_time: usize,
         request_time: usize,
     ) -> Request {
@@ -48,12 +58,17 @@ impl Request {
             id,
             t_arrival,
             t_departure: 0,
+            is_f_dropped: false,
+            is_f_completed: false,
             is_p_dropped: false,
             is_p_completed: false,
             is_r_dropped: false,
             is_r_completed: false,
-            t_forwarded: 0,
             flow_id,
+            t_f_start: 0,
+            t_f_end: 0,
+            f_completed: 0,
+            forward_time,
             t_p_start: 0,
             t_p_end: 0,
             p_completed: 0,
@@ -83,12 +98,8 @@ impl Request {
         self.flow_id
     }
 
-    pub fn set_forwarded_time(&mut self, t_forwarded: usize) {
-        self.t_forwarded = t_forwarded;
-    }
-
-    pub fn get_forwarded_time(&self) -> usize {
-        self.t_forwarded
+    pub fn get_start(&self) -> usize {
+        self.t_p_start
     }
 
     pub fn set_arrival_time(&mut self, t_arrival: usize) {
@@ -103,12 +114,20 @@ impl Request {
         self.t_departure = t_departure;
     }
     
+    pub fn get_departure_time(&self) -> usize {
+        self.t_departure
+    }
+
     pub fn get_stack_time(&self) -> usize {
         self.stack_time
     }
 
     pub fn get_request_time(&self) -> usize {
         self.request_time
+    }
+
+    pub fn is_f_completed(&self) -> bool {
+        self.is_f_completed
     }
 
     pub fn is_p_completed(&self) -> bool {
@@ -119,12 +138,20 @@ impl Request {
         self.is_r_completed
     }
 
+    pub fn set_f_start(&mut self, t_cur: usize) {
+        self.t_f_start = t_cur;
+    }
+
     pub fn set_p_start(&mut self, t_cur: usize) {
         self.t_p_start = t_cur;
     }
 
     pub fn set_r_start(&mut self, t_cur: usize) {
         self.t_r_start = t_cur;
+    }
+
+    pub fn set_f_end(&mut self, t_cur: usize) {
+        self.t_f_end = t_cur;
     }
 
     pub fn set_p_end(&mut self, t_cur: usize) {
@@ -135,12 +162,25 @@ impl Request {
         self.t_r_end = t_cur;
     }
 
+    pub fn set_f_dropped(&mut self) {
+        self.is_f_dropped = true;
+    }
+
     pub fn set_p_dropped(&mut self) {
         self.is_p_dropped = true;
     }
 
     pub fn set_r_dropped(&mut self) {
         self.is_r_dropped = true;
+    }
+
+    pub fn f_schedule(&mut self) -> bool {
+        self.f_completed += 1;
+        if self.f_completed == self.forward_time {
+            self.is_f_completed = true;
+        }
+
+        self.is_f_completed
     }
 
     pub fn p_schedule(&mut self) -> bool {

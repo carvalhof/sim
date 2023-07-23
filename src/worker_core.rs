@@ -51,13 +51,40 @@ impl Core {
             CoreAction::Forward => {
                 // Layout 1
                 // In this case, we need only receive the packet and forward to an idle core
-                self.is_idle = true;
-                if let Some(mut req) = self.local_queue.pop_front() {
-                    req.set_forwarded_time(t_cur);
-                    CoreState::Finished(req)
-                } else {
-                    CoreState::Idle
+                match &mut self.current_request {
+                    Some(req) => {
+                        if req.f_schedule() {
+                            let mut request: Request = self.current_request.take().unwrap();
+                            self.current_request = None;
+                            request.set_f_end(t_cur);
+                            self.is_idle = true;
+                            CoreState::Finished(request)
+                        } else {
+                            self.is_idle = false;
+                            CoreState::Running
+                        }
+                    },
+                    None => {
+                        if let Some(mut req) = self.local_queue.pop_front() {
+                            req.set_f_start(t_cur);
+                            req.f_schedule(); // We assume that application time bigger than 1, that why we do not check if application completed
+                            self.current_request = Some(req);
+                            self.is_idle = false;
+                            CoreState::Running
+                        } else {
+                            self.is_idle = true;
+                            CoreState::Idle
+                        }
+                    }
                 }
+
+                // self.is_idle = true;
+                // if let Some(mut req) = self.local_queue.pop_front() {
+                //     req.set_forwarded_time(t_cur);
+                //     CoreState::Finished(req)
+                // } else {
+                //     CoreState::Idle
+                // }
             },
             CoreAction::Application => {
                 // Layouts 3 and 4
@@ -69,6 +96,7 @@ impl Core {
                             let mut request: Request = self.current_request.take().unwrap();
                             self.current_request = None;
                             request.set_r_end(t_cur);
+                            request.set_departure_time(t_cur + 1);
                             self.is_idle = true;
                             CoreState::Finished(request)
                         } else {
@@ -82,14 +110,8 @@ impl Core {
                             req.r_schedule(); // We assume that application time bigger than 1, that why we do not check if application completed
                             self.current_request = Some(req);
                             self.is_idle = false;
-                            // if self.core_id == 3 {
-                            //     println!("sou 3 em running")
-                            // }
                             CoreState::Running
                         } else {
-                            // if self.core_id == 3 {
-                            //     println!("sou 3 em idle");
-                            // }
                             self.is_idle = true;
                             CoreState::Idle
                         }
@@ -136,8 +158,9 @@ impl Core {
                             // If 'req' completed network stack processing, we can go to the application processing
                             if req.r_schedule() {
                                 // If 'req' completed both network stack and application processing, we can finalize it
-                                let mut request = self.current_request.take().unwrap();
+                                let mut request: Request = self.current_request.take().unwrap();
                                 self.current_request = None;
+                                
                                 request.set_r_end(t_cur);
                                 request.set_departure_time(t_cur + 1);
                                 self.is_idle = true;
@@ -157,7 +180,7 @@ impl Core {
                             self.is_idle = false;
                             CoreState::Running
                         }
-                    }
+                    },
                     None => {
                         if let Some(mut req) = self.local_queue.pop_front() {
                             req.set_p_start(t_cur);
@@ -178,13 +201,19 @@ impl Core {
                 match &mut self.current_request {
                     Some(req) => {
                         let spinlocks: &mut Vec<usize> = locks.unwrap();
-                        if spinlocks[req.get_flow_id()] == self.core_id || spinlocks[req.get_flow_id()] == usize::MAX {
+                        if spinlocks[req.get_flow_id()] == usize::MAX {
+                            // This means that will be the first time that this core will process this request
                             spinlocks[req.get_flow_id()] = self.core_id;
+                            req.set_p_start(t_cur);
+                            req.p_schedule(); //We assume that network stack time bigger than 1, that why we do not check if network stack completed
+                            self.is_idle = false;
+                            CoreState::Running
+                        } else if spinlocks[req.get_flow_id()] == self.core_id {
                             if req.is_p_completed() {
                                 // If 'req' completed network stack processing, we can go to the application processing
                                 if req.r_schedule() {
                                     // If 'req' completed both network stack and application processing, we can finalize it
-                                    let mut request = self.current_request.take().unwrap();
+                                    let mut request: Request = self.current_request.take().unwrap();
                                     self.current_request = None;
                                     request.set_r_end(t_cur);
                                     request.set_departure_time(t_cur + 1);
@@ -207,16 +236,17 @@ impl Core {
                                 CoreState::Running
                             }
                         } else {
+                            // Another worker is holding the lock for this request
                             self.is_idle = false;
                             CoreState::Running
                         }
-                    }
+                    },
                     None => {
                         if let Some(mut req) = self.local_queue.pop_front() {
-                            let spinlocks = locks.unwrap();
+                            let spinlocks: &mut Vec<usize> = locks.unwrap();
                             if spinlocks[req.get_flow_id()] == usize::MAX {
                                 // This indicates that no worker is processing this flow
-                                spinlocks[req.get_flow_id()] = self.get_id();
+                                spinlocks[req.get_flow_id()] = self.core_id;
                                 req.set_p_start(t_cur);
                                 req.p_schedule(); //We assume that network stack time bigger than 1, that why we do not check if network stack completed
                             }
