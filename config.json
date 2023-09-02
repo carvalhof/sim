@@ -1,11 +1,11 @@
 {
     "seed": 7,
-    "layout": 2,
+    "layout": 3,
     "duration": 100000000,
     "queue_size": 1024,
-    "rtt_base": 6259,
-    "nr_total_cores": 10,
-    "nr_indirection_table_entries": 128,
+    "rtt_base": 8000,
+    "nr_total_cores": 8,
+    "nr_indirection_table_entries": 512,
     "layout1": {
         "nr_worker_cores": 7
     },
@@ -20,15 +20,15 @@
         "nr_application_cores": 6
     },
     "forwarder": {
-        "_comments": "the number of ticks used by forwarder (layout1)",
+        "_comments": "the number of ticks used by the forwarder (layout1)",
         "distribution": "constant",
-        "mean1": 700,
+        "mean1": 1300,
         "mean2": 1000
     },
     "network_stack": {
         "_comments": "the number of ticks used by the network stack",
         "distribution": "constant",
-        "mean1": 800
+        "mean1": 1600
     },
     "application": {
         "_comments": "the number of ticks used by the application",
@@ -39,9 +39,9 @@
     },
     "packets": {
         "_comments": "rate in pps",
-        "rate": 1000000,
+        "rate": 300000,
         "nr_packets": 1000000,
-        "nr_flows": 128,
+        "nr_flows": 1024,
         "distribution": "exponential"
     }
 }

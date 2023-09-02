@@ -6,8 +6,37 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+csv = "1.2.2"
 log = "0.4.19"
 arrayvec = "0.7.4"
 indicatif = "0.17.5"
 rustc-serialize = "0.3.24"
 rand = { version = "0.8.5", features = ["small_rng"] }
+
+#=======================================================================================================================
+# Profile
+#=======================================================================================================================
+
+# Build profile used for releases.
+[profile.release]
+opt-level = 3             # Enable all compiler optimizations.
+debug = false             # Do not include any debug info in the binary.
+debug-assertions = false  # Do not include any debug assertions in the binary.
+overflow-checks = false   # Do not check for overflows at runtime.
+lto = "fat"               # Perform link time optimizations across all dependencies (overridden).
+panic = "abort"           # Terminate the process upon panic (overridden).
+incremental = false       # Disable incremental compilation.
+codegen-units = 1         # Produce a single code generation unit (overridden).
+rpath = false             # Disable runtime search path.
+
+# Build profile used for development and debugging.
+[profile.dev]
+opt-level = 0             # Disable all compiler optimizations.
+debug = true              # Output full debug info in the binary.
+debug-assertions = true   # Include debug assertions in the binary.
+overflow-checks = true    # Check for overflows at runtime.
+lto = "off"               # Disable link time optimization (overridden).
+panic = 'unwind'          # Unwind the stack upon panic.
+incremental = true        # Incremental build.
+codegen-units = 256       # Produce multiple code generation units.
+rpath = false             # Disable runtime search path.

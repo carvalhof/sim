@@ -12,15 +12,15 @@ gnuplot << EOF
 
 	set key bottom right
 
-	set xlabel "RTT Latency (ns)"
-	set xrange [0:30000]
+	set xlabel "RTT Latency (us)"
+	set xrange [0:30]
 
 	set ylabel "CDF"
 	set yrange [0:1.01]
 
 	plot \
-		'layout1_run0.dat.cdf' 	u 1:3 w l lw 4 t "layout 1 (Simulated)", \
-		'layout2_run0.dat.cdf' 	u 1:3 w l lw 4 t "layout 2 (Simulated)", \
-		'layout3_run0.dat.cdf' 	u 1:3 w l lw 4 t "layout 3 (Simulated)", \
-		'layout4_run0.dat.cdf' 	u 1:3 w l lw 4 t "layout 4 (Simulated)"
+		'layout1_run0.dat.cdf' 	u (column(1)/1000):3 w l lw 4 t "Layout 1", \
+		'layout2_run0.dat.cdf' 	u (column(1)/1000):3 w l lw 4 t "Layout 2", \
+		'layout3_run0.dat.cdf' 	u (column(1)/1000):3 w l lw 4 t "Layout 3", \
+		'layout4_run0.dat.cdf' 	u (column(1)/1000):3 w l lw 4 t "Layout 4"
 EOF

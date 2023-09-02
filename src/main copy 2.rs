@@ -563,7 +563,7 @@ impl Simulation {
                 }
             },
             Layout::Layout4(network_cores, map) => {
-                // First, we need make progress in application cores
+                // First, we need make progress in all worker cores
                 for application_cores in map.values_mut() {
                     for core in application_cores.iter_mut() {
                         match core.get_action() {
@@ -708,7 +708,7 @@ impl Simulation {
 
         let mut arr: Vec<usize> = Vec::<usize>::new();
         for i in &self.finished {
-            arr.push((i.get_departure_time() - i.get_arrival_time()) + self.rtt_base);
+            arr.push(i.get_departure_time() - i.get_arrival_time());
         }
         arr.sort();
 
